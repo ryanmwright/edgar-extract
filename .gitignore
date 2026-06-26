@@ -1,0 +1,154 @@
+# Python.gitignore
+
+# Byte-compiled / optimized / DLL files
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# C extensions
+
+*.so
+
+# Distribution / packaging
+
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+
+# Pip
+
+pip-log.txt
+pip-delete-this-directory.txt
+
+# PyInstaller
+
+*.manifest
+*.spec
+
+# Installer logs
+
+pip-wheel-metadata/
+
+# Unit test / coverage reports
+
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Type checkers
+
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Ruff
+
+.ruff_cache/
+
+# PyCharm
+
+.idea/
+
+# VSCode
+
+.vscode/
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+# pyenv
+
+.python-version
+
+# dotenv
+
+.env
+.env.*
+!.env.example
+
+# direnv
+
+.direnv/
+
+# Nix
+
+result
+result-*
+.nix-*
+.devenv/
+
+# macOS
+
+.DS_Store
+
+# Linux
+
+*~
+
+# Windows
+
+Thumbs.db
+Desktop.ini
+
+# Logs
+
+*.log
+
+# ONNX / ML artifacts
+
+*.onnx
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Temporary files
+
+tmp/
+temp/
+*.tmp
+
+# Generated outputs
+
+outputs/
+runs/
+checkpoints/
+
+# Local user files
+
+local/
+data/
+cache/
+context/
