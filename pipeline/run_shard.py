@@ -1,4 +1,4 @@
-"""Run the pipeline for one shard of pipeline/funds.json.
+"""Run the pipeline for one shard of config/funds.json.
 
 Used by the GitHub Actions matrix to parallelize across funds. Per-fund
 failures are logged but don't fail the shard — partial results are
@@ -18,7 +18,7 @@ from . import fetch_holdings
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Process one shard of funds.json")
-    p.add_argument("--funds-file", default="pipeline/funds.json")
+    p.add_argument("--funds-file", default="config/funds.json")
     p.add_argument("--shard", type=int, required=True)
     p.add_argument("--total-shards", type=int, required=True)
     p.add_argument("--out", default="data/snapshots")

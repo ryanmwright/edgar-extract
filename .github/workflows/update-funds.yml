@@ -106,3 +106,60 @@ jobs:
             git commit -m "Update funds $(date -u +%Y-%m-%d)"
             git push
           fi
+
+  securities:
+    name: Refresh securities registry
+    needs: commit
+    runs-on: ubuntu-latest
+    # First-run bootstrap of an empty registry takes ~15-20 min for
+    # ~3,500 EDGAR calls. Steady-state runs are seconds (in-TTL cache).
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out fund-extracts (read-only, source of CIKs)
+        uses: actions/checkout@v4
+        with:
+          repository: vizfolio/fund-extracts
+          path: fund-extracts
+
+      - name: Check out securities-extracts (read-write, target)
+        uses: actions/checkout@v4
+        with:
+          repository: vizfolio/securities-extracts
+          ssh-key: ${{ secrets.SECURITIES_REPO_DEPLOY_KEY }}
+          path: securities-extracts
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build/refresh securities registry
+        env:
+          EDGAR_USER_AGENT: ${{ secrets.EDGAR_USER_AGENT }}
+        run: |
+          nix develop -c python -m pipeline.securities.build_registry \
+            --fund-snapshots fund-extracts/snapshots \
+            --seed-tickers config/seed_tickers.json \
+            --out securities-extracts
+
+      - name: Inspect registry diff
+        run: |
+          cd securities-extracts
+          echo "Total records: $(ls by_cik/ | wc -l)"
+          echo "Ticker index: $(jq 'length' by_ticker.json) entries"
+          echo
+          echo "Changes vs HEAD:"
+          git status --short by_cik/ by_ticker.json | head -20
+
+      - name: Commit and push to securities-extracts
+        run: |
+          cd securities-extracts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add by_cik/ by_ticker.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit to securities-extracts"
+          else
+            git commit -m "Update securities registry $(date -u +%Y-%m-%d)"
+            git push
+          fi

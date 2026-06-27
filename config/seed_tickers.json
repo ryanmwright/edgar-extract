@@ -1,0 +1,4 @@
+{
+  "_comment": "Extra tickers to enrich in the securities registry even when no tracked fund holds them. Resolved via edgar.Company(ticker) at registry-build time. Add personal watchlist names or commonly-referenced issuers here.",
+  "tickers": []
+}

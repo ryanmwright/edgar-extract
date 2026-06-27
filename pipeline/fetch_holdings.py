@@ -42,6 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cik", required=True, help="SEC CIK (e.g. 0000036405)")
     parser.add_argument("--series-id", required=True, help="SEC series ID")
     parser.add_argument("--out", default="data/snapshots", help="Output root")
+    parser.add_argument(
+        "--ticker-index",
+        default="data-securities/by_ticker.json",
+        help="Optional ticker→CIK index from the securities repo. "
+        "Missing file is fine — every ticker just hits EDGAR.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -74,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             meta["accession_no"],
         )
 
-    parsed = nport.parse(filing)
+    parsed = nport.parse(filing, ticker_index_path=args.ticker_index)
     parsed["filing"] = {
         "accession_no": meta["accession_no"],
         "source_url": meta["source_url"],

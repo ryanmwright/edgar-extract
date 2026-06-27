@@ -1,0 +1,9 @@
+{
+  "_comment": "Per-CIK sector overrides for issuers whose SIC code doesn't agree with their GICS-style sector. SIC is from 1937 (last revised 1987) and predates modern internet/media companies; SEC also files managed-care HMOs under Finance. The registry checks this map BEFORE falling back to config/sic_to_sector.json. Keys are zero-padded 10-digit CIKs. Extend as new mismatches surface — only override when the SIC-derived sector is clearly wrong.",
+  "overrides": {
+    "0001652044": {"sector": "Communication Services", "reason": "Alphabet (GOOGL/GOOG) — SIC 7370 maps to IT, but GICS reclassified to Communication Services in 2018"},
+    "0001326801": {"sector": "Communication Services", "reason": "Meta Platforms — SIC 7370 maps to IT, but GICS classifies as Communication Services"},
+    "0001744489": {"sector": "Communication Services", "reason": "Walt Disney — SIC 7990 maps to Consumer Discretionary, but GICS classifies as Communication Services"},
+    "0000731766": {"sector": "Health Care", "reason": "UnitedHealth — SIC 6324 (Hospital/Medical Service Plans) maps to Financials, but GICS classifies managed-care HMOs as Health Care"}
+  }
+}

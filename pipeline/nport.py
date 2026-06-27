@@ -13,9 +13,11 @@ filing-provenance metadata. Resolution flow for ticker/ISIN:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from decimal import Decimal
+from pathlib import Path
 
 import edgar
 
@@ -136,6 +138,117 @@ def _monthly_returns(return_info, as_of: str | None) -> list[dict]:
     return out
 
 
+def _normalize_cik(cik) -> str | None:
+    """Format any CIK representation to SEC-canonical zero-padded 10 digits."""
+    if cik is None:
+        return None
+    s = str(cik).strip()
+    if not s:
+        return None
+    try:
+        return f"{int(s):010d}"
+    except ValueError:
+        return None
+
+
+def _load_ticker_index(path: str | Path | None) -> dict[str, str]:
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.exists():
+        log.info("ticker index not found at %s — every ticker will hit EDGAR", p)
+        return {}
+    try:
+        with open(p) as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("could not read ticker index %s: %s", p, e)
+        return {}
+    # Normalize: tickers upper-cased, CIKs zero-padded.
+    out: dict[str, str] = {}
+    for ticker, cik in raw.items():
+        if not isinstance(ticker, str):
+            continue
+        norm = _normalize_cik(cik)
+        if norm:
+            out[ticker.upper()] = norm
+    return out
+
+
+def _ticker_variants(ticker: str) -> list[str]:
+    """Plausible lookup variants for a ticker.
+
+    N-PORT sometimes strips the dash from class-suffix tickers (BRK-A → BRKA).
+    Edgartools' ticker parquet sometimes carries only the parent (CWEN), not
+    the class form (CWEN-A / CWENA). We try, in order:
+      1. The raw ticker as given (catches the common case).
+      2. The dashed form, when the trailing letter looks like a share class.
+      3. The bare prefix without the suffix letter — same issuer, since
+         share-class tickers all roll up to one CIK.
+    The fallbacks only fire when the raw lookup fails, so well-formed
+    tickers (AAPL, META, TSLA) take the fast path.
+    """
+    out = [ticker]
+    if len(ticker) >= 3 and ticker.isalpha() and ticker[-1] in "ABCD":
+        out.append(f"{ticker[:-1]}-{ticker[-1]}")
+        out.append(ticker[:-1])
+    return out
+
+
+def lookup_company_cik(ticker: str) -> str | None:
+    """Resolve a ticker → CIK via edgartools, trying class-suffix variants
+    on failure. Returns the normalized CIK or None when no variant resolves.
+    """
+    for candidate in _ticker_variants(ticker.upper()):
+        try:
+            company = edgar.Company(candidate)
+            return _normalize_cik(company.cik)
+        except Exception as e:  # CompanyNotFoundError + transient network
+            log.debug("CIK lookup failed for %s: %s", candidate, e)
+            continue
+    return None
+
+
+def _resolve_issuer_ciks(holdings: list[dict], ticker_index: dict[str, str]) -> None:
+    """Populate h['issuer_cik'] in-place for every holding that has a ticker.
+
+    Resolution order per ticker: cached index (free) -> edgar.Company (one
+    EDGAR call, with class-suffix retry). In-memory dedupe within a run;
+    misses are cached so a ticker that doesn't resolve is only attempted
+    once.
+    """
+    runtime_cache: dict[str, str | None] = {}
+    hits, misses, network = 0, 0, 0
+
+    for h in holdings:
+        ticker = h.get("ticker")
+        if not ticker:
+            h["issuer_cik"] = None
+            continue
+        key = ticker.upper()
+        if key in runtime_cache:
+            h["issuer_cik"] = runtime_cache[key]
+            continue
+        cik = ticker_index.get(key)
+        if cik:
+            runtime_cache[key] = cik
+            h["issuer_cik"] = cik
+            hits += 1
+            continue
+        cik = lookup_company_cik(key)
+        if cik:
+            network += 1
+        else:
+            misses += 1
+        runtime_cache[key] = cik
+        h["issuer_cik"] = cik
+
+    log.info(
+        "CIK resolution: %d index hits, %d EDGAR fetches, %d unresolved",
+        hits, network, misses,
+    )
+
+
 def find_latest(cik: str, series_id: str):
     """Locate the latest NPORT-P filing for a series without downloading XML.
 
@@ -170,9 +283,14 @@ def find_latest(cik: str, series_id: str):
     return filing, meta
 
 
-def parse(filing) -> dict:
+def parse(filing, ticker_index_path: str | Path | None = None) -> dict:
     """Download and parse a located NPORT-P filing. Returns the intermediate
     dict consumed by `transform.to_json1`.
+
+    `ticker_index_path` optionally points at a `by_ticker.json` from the
+    securities registry (`<SECURITIES_REPO>/by_ticker.json`). When present,
+    it lets us resolve ticker → issuer CIK without an EDGAR call for
+    issuers we've already seen.
     """
     report = filing.obj()
 
@@ -258,13 +376,19 @@ def parse(filing) -> dict:
     for h in holdings:
         h.pop("_cusip", None)
 
+    # Resolve each holding's ticker to its issuer CIK so the snapshot can
+    # reference the securities registry. Holdings without a ticker stay
+    # null — the registry pipeline can try harder via LEI/name later.
+    ticker_index = _load_ticker_index(ticker_index_path)
+    _resolve_issuer_ciks(holdings, ticker_index)
+
     return {"fund": fund, "holdings": holdings}
 
 
-def fetch_latest(cik: str, series_id: str) -> dict:
+def fetch_latest(cik: str, series_id: str, ticker_index_path: str | Path | None = None) -> dict:
     """Convenience wrapper: find + parse + attach filing metadata."""
     filing, meta = find_latest(cik, series_id)
-    parsed = parse(filing)
+    parsed = parse(filing, ticker_index_path=ticker_index_path)
     parsed["filing"] = {
         "accession_no": meta["accession_no"],
         "source_url": meta["source_url"],

@@ -13,7 +13,7 @@ from . import mappings
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 
 
 def _holding(h: dict) -> dict:
@@ -22,6 +22,7 @@ def _holding(h: dict) -> dict:
         "ticker": h.get("ticker"),
         "isin": h.get("isin"),
         "lei": h.get("lei"),
+        "issuer_cik": h.get("issuer_cik"),
         "name": h.get("name"),
         "weight": (h.get("pct_val") or 0.0) / 100.0,
         "fair_value_usd": h.get("val_usd"),

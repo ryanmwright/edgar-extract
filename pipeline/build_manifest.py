@@ -1,6 +1,6 @@
 """Build data/funds.json — the runtime manifest of available funds.
 
-For each fund in pipeline/funds.json, scans data/snapshots/{series_id}/
+For each fund in config/funds.json, scans data/snapshots/{series_id}/
 for snapshots, picks the most recent, and emits an entry with:
 - series_id, name, registrant_cik
 - tickers[]: every share-class ticker for the series (from SEC's
@@ -79,7 +79,7 @@ def _latest_snapshot(series_dir: Path) -> tuple[str, str | None] | None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build the runtime funds manifest")
-    p.add_argument("--seed", default="pipeline/funds.json")
+    p.add_argument("--seed", default="config/funds.json")
     p.add_argument("--snapshots", default="data/snapshots")
     p.add_argument("--out", default="data/funds.json")
     args = p.parse_args(argv)

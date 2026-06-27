@@ -35,7 +35,7 @@ code through a small curated `sic_to_sector.json` to a coarse sector
 - `sic_code: "6798"` (the raw 4-digit code; null when unresolvable)
 - `sector: "Real Estate"` (mapped, coarse)
 
-The mapping table lives at `pipeline/data/sic_to_sector.json` and ships
+The mapping table lives at `config/sic_to_sector.json` and ships
 with the code.
 
 ---
