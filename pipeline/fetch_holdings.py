@@ -23,7 +23,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import nport, transform
+from . import expenses, nport, transform
 
 
 def _read_gz(path: Path) -> dict:
@@ -85,6 +85,23 @@ def main(argv: list[str] | None = None) -> int:
         "accession_no": meta["accession_no"],
         "source_url": meta["source_url"],
     }
+
+    share_classes = parsed["fund"].get("share_classes") or []
+    class_ids = [c["class_id"] for c in share_classes if c.get("class_id")]
+    by_class_id, sources = expenses.fetch_expense_ratios(
+        args.cik, args.series_id, class_ids
+    )
+    for sc in share_classes:
+        ratio = by_class_id.get(sc.get("class_id"), {}).get("expense_ratio")
+        sc["expense_ratio"] = ratio
+    parsed["fund"]["fees_source_filings"] = sources
+    log.info(
+        "expense ratios: %d/%d classes covered from %d 497K(s)",
+        sum(1 for sc in share_classes if sc.get("expense_ratio") is not None),
+        len(share_classes),
+        len(sources),
+    )
+
     output = transform.to_json1(parsed)
 
     _write_gz(snapshot_path, output)

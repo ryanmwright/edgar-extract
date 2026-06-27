@@ -1,85 +1,96 @@
 # Deferred Data Gaps
 
-Things we know are missing from the schema v0.2 output and chose not to
+Things we know are missing from the schema v0.4 output and chose not to
 build yet. Listed in rough priority order for a frontend that wants
-sector breakdown, transaction import, and bond/REIT support.
+transaction import, bond/REIT support, and richer fund-level metadata.
 
 ---
 
-## 1. Sector / industry classification (biggest gap)
+## 1. Sector / industry classification — **RESOLVED** (schema v0.3)
 
-**Problem.** N-PORT carries no sector or industry data. The richest
-classification we expose today is `asset_cat` (equity/debt/derivative)
-and `issuer_cat` (corp/sovereign/muni/other). For a per-stock industry
-breakdown — including telling REITs apart from non-REIT equities — we
-need an external concordance.
+Sector and industry data are now available, but the architecture diverged
+from the original "embed `sic_code` + `sector` per holding" plan. Instead:
 
-**Options:**
+- Per-holding `issuer_cik` field added to fund snapshots (schema v0.3).
+- A separate **securities registry** (`vizfolio/securities-extracts`)
+  publishes per-issuer records keyed by CIK with `sic`, `sic_description`
+  (≈ industry, ~1000 categories), `sector` (coarse GICS-style, 11
+  buckets), country, exchanges, and tickers.
+- Sector derivation: `config/sic_to_sector.json` (~430 SIC codes mapped)
+  with per-CIK overrides in `config/sector_overrides.json` for SIC vs
+  GICS mismatches (Alphabet/Meta/Disney → Communication Services;
+  UnitedHealth → Health Care).
+- Class-suffix recovery: tickers like `BRKA` / `CWENA` that N-PORT
+  strips dashes from are resolved via dashed and bare-prefix variants.
 
-| Approach | Coverage | Cost | Maintenance |
-|---|---|---|---|
-| SEC SIC code via issuer CIK lookup | Most US equities | Free, pipeline-side enrichment | Per-issuer EDGAR call, cacheable |
-| Curated `sic_to_sector.json` in repo | SIC → GICS/coarse sector | Free, one-time research | Manual; SIC is stable |
-| OpenFIGI extended fields (`marketSector`) | Already partly used | Free (rate-limited) | None |
-| Wikidata `P452` (industry) | Spotty | Free, slow | None |
-| Commercial feed (Polygon, FMP) | Best | $$ | Vendor lock |
+**Coverage at last build:** 99.9% sector + SIC across 3,396 issuers;
+98.2% of VTI holdings carry a resolved `issuer_cik`. The residual is
+edgartools' bundled ticker→CIK parquet gaps for some smaller / newer
+issuers (HOLX, CTRA, EHAB, AL, etc.) — would need a separate ticker
+augmentation map or name-based EDGAR search to close further.
 
-**Recommendation.** Combine 1+2: at pipeline time, look up each issuer's
-CIK from edgartools (`Company(ticker).sic`), then map the 4-digit SIC
-code through a small curated `sic_to_sector.json` to a coarse sector
-(Financials, Energy, Real Estate, …). REITs fall out for free (SIC 6798,
-6799). Industry granularity below sector can come later via OpenFIGI's
-`securityType` or a third party.
-
-**Where it fits in the schema.** Add per-holding fields:
-- `sic_code: "6798"` (the raw 4-digit code; null when unresolvable)
-- `sector: "Real Estate"` (mapped, coarse)
-
-The mapping table lives at `config/sic_to_sector.json` and ships
-with the code.
+**Why not embed sector per-holding (the original plan)?** A separate
+issuer-keyed registry doubles as the dataset for *standalone stock*
+positions — not just fund holdings. It also future-proofs gaps #2 and
+#3 below (share-class metadata and expense ratios are also per-issuer
+slow-changing data, the same shape). See `pipeline/securities/` and
+the README for build mechanics.
 
 ---
 
-## 2. Share class detail (per-class metadata)
+## 2. Share class detail (per-class metadata) — **RESOLVED** (schema v0.4)
 
-We currently emit fund-level data only. A consumer who holds VTSAX vs.
-VTI vs. VITSX gets the same JSON. That's correct for *holdings* (same
-underlying portfolio) but wrong for:
-- expense ratio (differs per class)
-- inception date (differs per class)
-- minimum investment (differs per class)
-- monthly_returns: we *do* emit per-class returns, but the consumer
-  has no class-id → ticker map without the manifest above
+`fund.share_classes[]` now ships with every snapshot, populated from
+the N-PORT SGML header's `SERIES-AND-CLASSES-CONTRACTS-DATA` block.
+Each entry carries `class_id`, `ticker`, `name`, and `expense_ratio`
+(see gap #3 below for the expense source).
 
-**What to add to the per-fund JSON:**
 ```json
 "share_classes": [
-  { "class_id": "C000007808", "ticker": "VTI", "expense_ratio": 0.0003 },
-  { "class_id": "C000007806", "ticker": "VTSAX", "expense_ratio": 0.0004 },
+  { "class_id": "C000007808", "ticker": "VTI",   "name": "ETF Shares",      "expense_ratio": 0.0003 },
+  { "class_id": "C000007806", "ticker": "VTSAX", "name": "Admiral Shares",  "expense_ratio": 0.0004 },
   ...
 ]
 ```
 
-**Source.** Class IDs and tickers come from the SGML header
-(`SERIES-AND-CLASSES-CONTRACTS-DATA`) plus `company_tickers_mf.json`.
-Expense ratio is **not in N-PORT** — see gap #4.
+Implementation: `pipeline/nport.parse_share_classes` regex-parses the
+SGML header (filing data we were already reading to filter by series).
+No extra HTTP call.
+
+**Still deferred for this slot:** `inception_date` and
+`minimum_investment`. edgartools exposes both via `Prospectus497K`
+(`PerformanceReturn.inception_date`, `min_investments` dict) but
+binding them back to `class_id` is messier than the expense ratio case
+and wasn't required for the initial frontend cut.
 
 ---
 
-## 3. Expense ratio (separate filings)
+## 3. Expense ratio — **RESOLVED** (schema v0.4)
 
-**Problem.** N-PORT carries no expense data. The fund's prospectus
-(N-1A) and annual updates (497K) do.
+`share_classes[].expense_ratio` is filled from the latest 497K summary
+prospectus per series. Pipeline lives in `pipeline/expenses.py`.
 
-**Approach.** Add a separate pipeline step:
-1. For each (cik, series_id) tracked, fetch the latest 497K filing.
-2. Parse the "Fees and Expenses" table — annual fund operating expenses
-   row gives net expense ratio per class.
-3. Write into `share_classes[].expense_ratio` in the fund JSON.
+**Resolution flow.** Multi-series registrants (Vanguard) file separate
+497Ks per share-class subset on the same day rather than one
+comprehensive prospectus, so a single-filing lookup misses most
+classes. Instead `expenses.fetch_expense_ratios` walks 497K filings in
+reverse-chronological order, aggregates `{class_id: expense_ratio}`,
+and stops when every class for the series is covered. Capped at 540
+days lookback / 30 filings to bound runtime on funds where some class
+never had a 497K. Prefers `net_expenses` (post-waiver) and falls back
+to `total_annual_expenses`.
 
-497K is a standard SEC form; edgartools should support pulling and
-parsing it, though the fees table layout varies across families. Plan
-for ~80% auto-parse coverage and a manual override table for the rest.
+**Coverage at last build (Vanguard VTI + BND):** 6/6 classes for both
+funds, matching the rates Vanguard publishes on its public site. 497K
+HTML parsing is handled entirely by edgartools'
+`Prospectus497K.from_filing`.
+
+`fund.fees_source_filings[]` lists every 497K that contributed an
+expense ratio, with `{accession_no, filing_date, source_url}`.
+
+**Cadence.** Expense ratios refresh whenever a new NPORT-P is filed
+(quarterly) — same skip-if-exists logic as the snapshot. Mid-quarter
+497K amendments aren't picked up until the next quarter's N-PORT.
 
 ---
 

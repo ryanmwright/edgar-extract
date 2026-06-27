@@ -13,7 +13,7 @@ from . import mappings
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "0.3"
+SCHEMA_VERSION = "0.4"
 
 
 def _holding(h: dict) -> dict:
@@ -83,6 +83,8 @@ def to_json1(parsed: dict) -> dict:
         "interest_rate_risk": fund_in.get("interest_rate_risk", []),
         "credit_spread_risk": fund_in.get("credit_spread_risk"),
         "monthly_returns": fund_in.get("monthly_returns", []),
+        "share_classes": fund_in.get("share_classes", []),
+        "fees_source_filings": fund_in.get("fees_source_filings", []),
     }
 
     return {

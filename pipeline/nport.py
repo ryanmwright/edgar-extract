@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -249,6 +250,49 @@ def _resolve_issuer_ciks(holdings: list[dict], ticker_index: dict[str, str]) -> 
     )
 
 
+_SERIES_BLOCK_RE = re.compile(r"<SERIES>(.*?)</SERIES>", re.DOTALL)
+_CLASS_BLOCK_RE = re.compile(r"<CLASS-CONTRACT>(.*?)</CLASS-CONTRACT>", re.DOTALL)
+_SERIES_ID_RE = re.compile(r"<SERIES-ID>\s*(\S+)")
+_CLASS_ID_RE = re.compile(r"<CLASS-CONTRACT-ID>\s*(\S+)")
+_CLASS_NAME_RE = re.compile(r"<CLASS-CONTRACT-NAME>\s*([^\n<]+)")
+_CLASS_TICKER_RE = re.compile(r"<CLASS-CONTRACT-TICKER-SYMBOL>\s*(\S+)")
+
+
+def parse_share_classes(filing, series_id: str) -> list[dict]:
+    """Extract {class_id, ticker, name} for `series_id` from the SGML header.
+
+    Multi-series registrants (e.g., Vanguard) carry several `<SERIES>` blocks
+    in the same SGML header; we only return classes for the requested
+    series. Returns an empty list when the header is absent or doesn't
+    mention `series_id`.
+    """
+    header = getattr(filing, "header", None)
+    text = getattr(header, "text", None) if header else None
+    if not text:
+        return []
+
+    for series_block in _SERIES_BLOCK_RE.findall(text):
+        sid_match = _SERIES_ID_RE.search(series_block)
+        if not sid_match or sid_match.group(1).strip() != series_id:
+            continue
+        classes = []
+        for class_block in _CLASS_BLOCK_RE.findall(series_block):
+            cid = _CLASS_ID_RE.search(class_block)
+            name = _CLASS_NAME_RE.search(class_block)
+            ticker = _CLASS_TICKER_RE.search(class_block)
+            if not cid:
+                continue
+            classes.append(
+                {
+                    "class_id": cid.group(1).strip(),
+                    "ticker": ticker.group(1).strip() if ticker else None,
+                    "name": name.group(1).strip() if name else None,
+                }
+            )
+        return classes
+    return []
+
+
 def find_latest(cik: str, series_id: str):
     """Locate the latest NPORT-P filing for a series without downloading XML.
 
@@ -314,6 +358,7 @@ def parse(filing, ticker_index_path: str | Path | None = None) -> dict:
         "interest_rate_risk": _interest_rate_risk(fi.current_metrics),
         "credit_spread_risk": _credit_spread_risk(fi),
         "monthly_returns": _monthly_returns(fi.return_info, as_of),
+        "share_classes": parse_share_classes(filing, gi.series_id),
     }
 
     # First pass: build holdings carrying CUSIP in-memory for the fallback step.
