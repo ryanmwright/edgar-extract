@@ -36,11 +36,21 @@
               uv pip install --python .venv/bin/python -r requirements.txt
               touch .venv/.synced
             fi
+            # Auto-load secrets from a local, gitignored .env file so
+            # EDGAR_USER_AGENT (and optionally OPENFIGI_API_KEY) don't
+            # have to live in shell rc files. Copy .env.example → .env
+            # to get started.
+            if [ -f .env ]; then
+              set -a
+              source .env
+              set +a
+            fi
+
             echo "Fund X-Ray dev shell — $(python --version)"
             if [ -z "$EDGAR_USER_AGENT" ]; then
-              echo "WARN: EDGAR_USER_AGENT is not set. SEC EDGAR requires a"
-              echo "      descriptive User-Agent (e.g. 'Fund X-Ray you@example.com')."
-              echo "      Export it before running the pipeline."
+              echo "WARN: EDGAR_USER_AGENT is not set."
+              echo "      Copy .env.example to .env and fill in your contact,"
+              echo "      or export EDGAR_USER_AGENT before running."
             fi
           '';
         };

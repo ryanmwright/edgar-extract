@@ -1,0 +1,14 @@
+[
+  {
+    "ticker": "VTI",
+    "cik": "0000036405",
+    "series_id": "S000002848",
+    "name": "Vanguard Total Stock Market Index Fund"
+  },
+  {
+    "ticker": "BND",
+    "cik": "0000794105",
+    "series_id": "S000002564",
+    "name": "Vanguard Total Bond Market Index Fund"
+  }
+]

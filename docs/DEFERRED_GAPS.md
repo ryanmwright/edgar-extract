@@ -40,43 +40,7 @@ with the code.
 
 ---
 
-## 2. `funds.json` manifest (required for the frontend)
-
-**Problem.** The frontend app holds user transactions keyed by ticker
-("VTI", "VBTLX") and needs to translate those into our series-id JSON
-files. Without an index, the app has to do it itself.
-
-**Schema (suggested):**
-```json
-{
-  "schema_version": "1",
-  "generated_at": "...",
-  "funds": [
-    {
-      "series_id": "S000002848",
-      "registrant_cik": "0000036405",
-      "name": "Vanguard Total Stock Market Index Fund",
-      "tickers": ["VTI", "VTSAX", "VITSX", "VSMPX"],
-      "share_class_ids": ["C000007805", "C000007806", "C000007808", ...],
-      "as_of": "2026-03-31",
-      "holdings_file": "data/holdings/S000002848.json"
-    },
-    ...
-  ]
-}
-```
-
-**Source.** EDGAR's `company_tickers_mf.json` already lists every fund
-share class with its (cik, seriesId, classId, symbol). Group by
-`seriesId` to build the manifest.
-
-**Generation.** New pipeline step `pipeline/build_manifest.py` that reads
-`company_tickers_mf.json`, filters to the funds we ship, and writes
-`data/funds.json`. Runs after the per-fund pipeline.
-
----
-
-## 3. Share class detail (per-class metadata)
+## 2. Share class detail (per-class metadata)
 
 We currently emit fund-level data only. A consumer who holds VTSAX vs.
 VTI vs. VITSX gets the same JSON. That's correct for *holdings* (same
@@ -102,7 +66,7 @@ Expense ratio is **not in N-PORT** — see gap #4.
 
 ---
 
-## 4. Expense ratio (separate filings)
+## 3. Expense ratio (separate filings)
 
 **Problem.** N-PORT carries no expense data. The fund's prospectus
 (N-1A) and annual updates (497K) do.
@@ -119,7 +83,7 @@ for ~80% auto-parse coverage and a manual override table for the rest.
 
 ---
 
-## 5. Cash & residual reconciliation
+## 4. Cash & residual reconciliation
 
 **What we have.** `dropped_holdings_count` + `dropped_weight` for things
 we couldn't identify, and `cash_not_in_portfolio_usd` (off-book cash).
@@ -141,7 +105,7 @@ we couldn't identify, and `cash_not_in_portfolio_usd` (off-book cash).
 
 ---
 
-## 6. Derivatives detail
+## 5. Derivatives detail
 
 **Current state.** We emit `asset_cat: "derivative"` and that's it.
 
@@ -160,7 +124,7 @@ because the derivative book is invisible.
 
 ---
 
-## 7. Securities lending
+## 6. Securities lending
 
 N-PORT reports per-holding lending data (on-loan amount, cash collateral,
 non-cash collateral). Useful for a "fund risk profile" view but not for
@@ -171,7 +135,7 @@ Add `is_on_loan`, `on_loan_value_usd`, `cash_collateral_usd`,
 
 ---
 
-## 8. Convertible bond reference instruments
+## 7. Convertible bond reference instruments
 
 If a bond is convertible, its `convertible_ref_instruments` lists the
 underlying equity. Letting the X-ray pierce through convertibles into
@@ -188,7 +152,7 @@ Add to the `debt` block when present:
 
 ---
 
-## 9. Fund flows (creations / redemptions)
+## 8. Fund flows (creations / redemptions)
 
 `fund_info.monthly_flow1/2/3` is already on the parsed object — three
 months of (sales, reinvestment, redemption) per class. Useful for
@@ -199,7 +163,7 @@ Small, easy lift — about 20 LOC.
 
 ---
 
-## 10. Miscellaneous schema hygiene
+## 9. Miscellaneous schema hygiene
 
 - **`lei: "N/A"`** is currently passed through as the string `"N/A"`
   for holdings whose LEI is missing. Normalize to `null`.
@@ -216,15 +180,12 @@ Small, easy lift — about 20 LOC.
 
 ---
 
-## 11. Pipeline-level (operational)
+## 10. Pipeline-level (operational)
 
-- **GitHub Actions workflow** — `.github/workflows/update-holdings.yml`
-  cron + commit-back. Not built yet; design is in `context/START.md`.
-- **Curated funds list** — `pipeline/funds.json` driving which series
-  the pipeline iterates. Currently the CLI takes one fund at a time.
-- **Incremental runs** — skip funds whose latest accession_no hasn't
-  changed since last write. Saves CI minutes and PR noise.
 - **Schema docs** — `schema.json` (JSON Schema or just human-readable
   reference). Today only the implementation defines the shape.
 - **Pipeline version stamp** — emit `pipeline_version` alongside
   `schema_version` so we can tell *what code* generated a given file.
+- **Historical-snapshot garbage collection** — at ~1 GB/year for 500
+  funds, the repo grows linearly. Eventually you'll want a separate
+  workflow to prune snapshots older than N years (default off for now).

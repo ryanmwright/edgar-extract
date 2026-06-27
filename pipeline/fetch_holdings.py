@@ -1,8 +1,23 @@
-"""CLI entry: fetch one fund's latest N-PORT and emit a json1 holdings file."""
+"""CLI entry: emit one fund's latest N-PORT to a date-keyed JSON snapshot.
+
+Layout:
+    data/holdings/{series_id}/{period_of_report}.json.gz
+
+Each snapshot is the full holdings file for a single quarter end. The
+runtime manifest (`data/funds.json`, built separately by
+`pipeline.build_manifest`) carries the `latest_period` per series so
+consumers can construct the right snapshot URL.
+
+Skip-if-exists: before downloading XML we compare the latest filing's
+accession_no against what's already on disk for that period_of_report.
+Same accession → no-op. Different accession (an NPORT-P/A amendment) →
+overwrite the dated file.
+"""
 
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import sys
@@ -11,15 +26,22 @@ from pathlib import Path
 from . import nport, transform
 
 
+def _read_gz(path: Path) -> dict:
+    with gzip.open(path, "rt") as f:
+        return json.load(f)
+
+
+def _write_gz(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", compresslevel=6) as f:
+        json.dump(data, f)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate a json1 holdings file for one fund.")
+    parser = argparse.ArgumentParser(description="Generate a snapshot for one fund.")
     parser.add_argument("--cik", required=True, help="SEC CIK (e.g. 0000036405)")
-    parser.add_argument("--series-id", required=True, help="SEC series ID (e.g. S000002848)")
-    parser.add_argument(
-        "--out",
-        default="data/holdings",
-        help="Output directory (default: data/holdings)",
-    )
+    parser.add_argument("--series-id", required=True, help="SEC series ID")
+    parser.add_argument("--out", default="data/holdings", help="Output root")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -29,22 +51,38 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("fetch_holdings")
 
-    log.info("fetching latest NPORT-P for series=%s", args.series_id)
-    parsed = nport.fetch_latest(args.cik, args.series_id)
+    log.info("locating latest NPORT-P for series=%s", args.series_id)
+    filing, meta = nport.find_latest(args.cik, args.series_id)
     log.info(
-        "filing %s (as_of %s), %d holdings",
-        parsed["filing"]["accession_no"],
-        parsed["fund"]["as_of"],
-        len(parsed["holdings"]),
+        "latest filing: %s (period %s)", meta["accession_no"], meta["period_of_report"]
     )
 
+    snapshot_path = Path(args.out) / args.series_id / f"{meta['period_of_report']}.json.gz"
+
+    if snapshot_path.exists():
+        try:
+            existing = _read_gz(snapshot_path)
+            existing_acc = existing.get("fund", {}).get("source_filing")
+        except (OSError, json.JSONDecodeError, KeyError):
+            existing_acc = None
+        if existing_acc == meta["accession_no"]:
+            log.info("up-to-date: %s already has accession %s", snapshot_path, existing_acc)
+            return 0
+        log.info(
+            "amendment: on-disk acc=%s, filing acc=%s — re-fetching",
+            existing_acc,
+            meta["accession_no"],
+        )
+
+    parsed = nport.parse(filing)
+    parsed["filing"] = {
+        "accession_no": meta["accession_no"],
+        "source_url": meta["source_url"],
+    }
     output = transform.to_json1(parsed)
 
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{args.series_id}.json"
-    out_path.write_text(json.dumps(output, indent=2))
-    log.info("wrote %s (%d holdings)", out_path, len(output["holdings"]))
+    _write_gz(snapshot_path, output)
+    log.info("wrote %s (%d holdings)", snapshot_path, len(output["holdings"]))
 
     return 0
 

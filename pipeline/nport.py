@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 _PLACEHOLDER_CUSIPS = {"000000000", "000000", "N/A", "", "0"}
 
 
-def _user_agent() -> str:
+def user_agent() -> str:
     ua = os.environ.get("EDGAR_USER_AGENT", "").strip()
     if not ua:
         raise RuntimeError(
@@ -136,8 +136,14 @@ def _monthly_returns(return_info, as_of: str | None) -> list[dict]:
     return out
 
 
-def fetch_latest(cik: str, series_id: str) -> dict:
-    edgar.set_identity(_user_agent())
+def find_latest(cik: str, series_id: str):
+    """Locate the latest NPORT-P filing for a series without downloading XML.
+
+    Returns the edgartools EntityFiling object plus a small metadata dict
+    (accession_no, period_of_report, source_url). The caller can use this
+    metadata to decide whether to skip the heavy parse step.
+    """
+    edgar.set_identity(user_agent())
 
     series = edgar.find(series_id)
     if series is None or getattr(series, "series_id", None) != series_id:
@@ -155,6 +161,19 @@ def fetch_latest(cik: str, series_id: str) -> dict:
             break
     if filing is None:
         raise LookupError(f"No NPORT-P filings for series_id={series_id}")
+
+    meta = {
+        "accession_no": filing.accession_no,
+        "period_of_report": _iso_date(filing.period_of_report),
+        "source_url": filing.filing_url,
+    }
+    return filing, meta
+
+
+def parse(filing) -> dict:
+    """Download and parse a located NPORT-P filing. Returns the intermediate
+    dict consumed by `transform.to_json1`.
+    """
     report = filing.obj()
 
     gi = report.general_info
@@ -239,9 +258,15 @@ def fetch_latest(cik: str, series_id: str) -> dict:
     for h in holdings:
         h.pop("_cusip", None)
 
-    filing_meta = {
-        "accession_no": filing.accession_no,
-        "source_url": filing.filing_url,
-    }
+    return {"fund": fund, "holdings": holdings}
 
-    return {"fund": fund, "holdings": holdings, "filing": filing_meta}
+
+def fetch_latest(cik: str, series_id: str) -> dict:
+    """Convenience wrapper: find + parse + attach filing metadata."""
+    filing, meta = find_latest(cik, series_id)
+    parsed = parse(filing)
+    parsed["filing"] = {
+        "accession_no": meta["accession_no"],
+        "source_url": meta["source_url"],
+    }
+    return parsed
