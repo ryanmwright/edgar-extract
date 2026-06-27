@@ -1,0 +1,27 @@
+{
+  "_comment": "Collective Investment Trust (CIT) substitution map. CITs are bank-administered trusts (not '40 Act funds) and don't file N-PORT, so their holdings are opaque. For index-tracking CITs, substituting a public mutual fund or ETF with the same index gives ~99% fidelity for X-ray purposes. The frontend should surface the substitution to the user before computing the X-ray. Patterns are matched case-insensitively against the user-entered fund name (substring match). Fidelity: 'high' = same index, expect <1% holdings drift; 'medium' = similar strategy, expect 5-15% drift; 'low' = rough analogue only.",
+  "substitutions": [
+    {
+      "patterns": [
+        "State Street S&P 500",
+        "SSgA S&P 500",
+        "State Street S&P 500 Index Non-Lending"
+      ],
+      "substitute_ticker": "VOO",
+      "substitute_name": "Vanguard S&P 500 ETF",
+      "fidelity": "high",
+      "note": "Both track the S&P 500 directly. The non-lending CIT forgoes securities lending income for a slight tracking-error advantage. VOO is the lowest-cost retail equivalent and shares series_id S000002839 with VFIAX (Admiral) and VFINX (Investor) — all three share classes resolve to the same holdings snapshot."
+    },
+    {
+      "patterns": [
+        "State Street U.S. Bond Index",
+        "SSgA U.S. Bond Index",
+        "State Street US Bond Index Non-Lending"
+      ],
+      "substitute_ticker": "BND",
+      "substitute_name": "Vanguard Total Bond Market ETF",
+      "fidelity": "high",
+      "note": "State Street's CIT tracks Bloomberg US Aggregate (non-float-adjusted); BND tracks the float-adjusted variant. Holdings differ by <1% (float adjustment excludes bonds held by central banks). BND is already tracked in config/funds.json so its snapshot is available immediately. For an exact-index match, AGG (iShares Core US Aggregate Bond) is the better substitute but not currently ingested."
+    }
+  ]
+}

@@ -10,5 +10,11 @@
     "cik": "0000794105",
     "series_id": "S000002564",
     "name": "Vanguard Total Bond Market Index Fund"
+  },
+  {
+    "ticker": "VOO",
+    "cik": "0000036405",
+    "series_id": "S000002839",
+    "name": "Vanguard 500 Index Fund"
   }
 ]
