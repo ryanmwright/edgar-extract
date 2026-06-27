@@ -1,4 +1,4 @@
-name: Update Holdings
+name: Update Funds
 
 on:
   schedule:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-holdings
+  group: update-funds
   cancel-in-progress: false
 
 env:
@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: holdings-shard-${{ matrix.shard }}
+          name: funds-shard-${{ matrix.shard }}
           path: data/snapshots/
           if-no-files-found: warn
           retention-days: 7
@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: holdings-shard-*
+          pattern: funds-shard-*
           path: data/snapshots/
           merge-multiple: true
 
@@ -103,6 +103,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit to fund-extracts"
           else
-            git commit -m "Update holdings $(date -u +%Y-%m-%d)"
+            git commit -m "Update funds $(date -u +%Y-%m-%d)"
             git push
           fi
