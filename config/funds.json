@@ -70,5 +70,11 @@
     "cik": "0000225997",
     "series_id": "S000048568",
     "name": "Vanguard Tax-Exempt Bond Index Fund"
+  },
+  {
+    "ticker": "VTWG",
+    "cik": "0001021882",
+    "series_id": "S000030005",
+    "name": "Vanguard Russell 2000 Growth Index Fund"
   }
 ]
