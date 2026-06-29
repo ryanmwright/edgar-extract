@@ -62,6 +62,23 @@ def _series_name(series_id: str) -> str:
     return series.name
 
 
+def _is_money_market_fund(series_id: str) -> bool:
+    """True when the series files N-MFP (money market funds) instead of N-PORT-P.
+
+    MMFs are exempt from N-PORT-P under SEC rule 30b1-7 and report holdings
+    monthly on N-MFP / N-MFP2 instead. Our N-PORT pipeline finds no filings
+    for them, so they need a separate cash-stub code path. One presence check
+    against either form is enough — a fund either files N-MFP every month or
+    never does.
+    """
+    series = edgar.find(series_id)
+    for form in ("N-MFP3", "N-MFP2", "N-MFP"):
+        filings = series.get_filings(form=form)
+        if filings is not None and len(filings) > 0:
+            return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Add funds to config/funds.json")
     p.add_argument("tickers", nargs="+", metavar="TICKER")
@@ -106,16 +123,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {ticker}: failed to resolve name — {e}")
             continue
 
-        new_entry = {
+        try:
+            is_cash = _is_money_market_fund(sid)
+        except Exception as e:
+            errors.append(ticker)
+            print(f"  {ticker}: failed to check filing forms — {e}")
+            continue
+
+        new_entry: dict = {
             "ticker": ticker,
             "cik": entry["cik"],
             "series_id": sid,
             "name": name,
         }
+        if is_cash:
+            new_entry["is_cash"] = True
+
         existing.append(new_entry)
         existing_series.add(sid)
         added.append(ticker)
-        print(f"  {ticker}: added ({name})")
+        suffix = " [cash equivalent — N-MFP filer]" if is_cash else ""
+        print(f"  {ticker}: added ({name}){suffix}")
 
     if added:
         config_path.write_text(json.dumps(existing, indent=2) + "\n")

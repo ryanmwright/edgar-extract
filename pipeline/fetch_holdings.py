@@ -48,6 +48,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional ticker→CIK index from the securities repo. "
         "Missing file is fine — every ticker just hits EDGAR.",
     )
+    parser.add_argument(
+        "--is-cash",
+        action="store_true",
+        help="Treat this series as a cash equivalent (money market fund). "
+        "Use N-MFP filings for provenance and emit a 100%% cash stub "
+        "snapshot instead of parsing N-PORT-P holdings.",
+    )
+    parser.add_argument(
+        "--fund-name",
+        default=None,
+        help="Display name for --is-cash stubs. Falls back to the series_id "
+        "when omitted.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -57,8 +70,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("fetch_holdings")
 
-    log.info("locating latest NPORT-P for series=%s", args.series_id)
-    filing, meta = nport.find_latest(args.cik, args.series_id)
+    if args.is_cash:
+        log.info("locating latest N-MFP for cash series=%s", args.series_id)
+        filing, meta = nport.find_latest(
+            args.cik, args.series_id, form=["N-MFP3", "N-MFP2", "N-MFP"]
+        )
+    else:
+        log.info("locating latest NPORT-P for series=%s", args.series_id)
+        filing, meta = nport.find_latest(args.cik, args.series_id)
     log.info(
         "latest filing: %s (period %s)", meta["accession_no"], meta["period_of_report"]
     )
@@ -80,7 +99,15 @@ def main(argv: list[str] | None = None) -> int:
             meta["accession_no"],
         )
 
-    parsed = nport.parse(filing, ticker_index_path=args.ticker_index)
+    if args.is_cash:
+        parsed = nport.parse_cash_stub(
+            filing,
+            series_id=args.series_id,
+            series_name=args.fund_name,
+            registrant_cik=args.cik,
+        )
+    else:
+        parsed = nport.parse(filing, ticker_index_path=args.ticker_index)
     parsed["filing"] = {
         "accession_no": meta["accession_no"],
         "source_url": meta["source_url"],

@@ -44,10 +44,13 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[tuple[dict, str]] = []
     for f in my_funds:
         label = f.get("ticker") or f["series_id"]
+        argv = ["--cik", f["cik"], "--series-id", f["series_id"], "--out", args.out]
+        if f.get("is_cash"):
+            argv.append("--is-cash")
+            if f.get("name"):
+                argv.extend(["--fund-name", f["name"]])
         try:
-            fetch_holdings.main(
-                ["--cik", f["cik"], "--series-id", f["series_id"], "--out", args.out]
-            )
+            fetch_holdings.main(argv)
         except Exception as e:
             log.exception("failed to process %s (%s)", label, f["series_id"])
             failures.append((f, str(e)))

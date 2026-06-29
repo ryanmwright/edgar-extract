@@ -33,13 +33,15 @@
     "ticker": "VMFXX",
     "cik": "0000106830",
     "series_id": "S000004462",
-    "name": "Vanguard Federal Money Market Fund"
+    "name": "Vanguard Federal Money Market Fund",
+    "is_cash": true
   },
   {
     "ticker": "VUSXX",
     "cik": "0000891190",
     "series_id": "S000002233",
-    "name": "Vanguard Treasury Money Market Fund"
+    "name": "Vanguard Treasury Money Market Fund",
+    "is_cash": true
   },
   {
     "ticker": "SCHD",

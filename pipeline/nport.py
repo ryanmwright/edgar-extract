@@ -293,12 +293,15 @@ def parse_share_classes(filing, series_id: str) -> list[dict]:
     return []
 
 
-def find_latest(cik: str, series_id: str):
-    """Locate the latest NPORT-P filing for a series without downloading XML.
+def find_latest(cik: str, series_id: str, form: str | list[str] = "NPORT-P"):
+    """Locate the latest filing of the given form for a series, no XML download.
 
     Returns the edgartools EntityFiling object plus a small metadata dict
     (accession_no, period_of_report, source_url). The caller can use this
     metadata to decide whether to skip the heavy parse step.
+
+    `form` defaults to NPORT-P (the standard fund-holdings filing). Pass
+    e.g. `["N-MFP2", "N-MFP"]` to find a money market fund's latest report.
     """
     edgar.set_identity(user_agent())
 
@@ -306,18 +309,26 @@ def find_latest(cik: str, series_id: str):
     if series is None or getattr(series, "series_id", None) != series_id:
         raise LookupError(f"No FundSeries found for series_id={series_id}")
 
-    # FundSeries.get_filings returns all of the registrant CIK's NPORT-P
+    # FundSeries.get_filings returns all of the registrant CIK's matching
     # filings, not just this series'. Scan headers (cheap, no XML download)
-    # for the SGML SERIES-ID tag to find the latest matching filing.
-    filings = series.get_filings(form="NPORT-P")
+    # for the SGML SERIES-ID tag to find the latest one for this series.
+    forms = [form] if isinstance(form, str) else list(form)
     target_tag = f"<SERIES-ID>{series_id}"
     filing = None
-    for f in filings:
-        if target_tag in f.header.text:
-            filing = f
+    for fm in forms:
+        filings = series.get_filings(form=fm)
+        if filings is None:
+            continue
+        for f in filings:
+            if target_tag in f.header.text:
+                filing = f
+                break
+        if filing is not None:
             break
     if filing is None:
-        raise LookupError(f"No NPORT-P filings for series_id={series_id}")
+        raise LookupError(
+            f"No {'/'.join(forms)} filings for series_id={series_id}"
+        )
 
     meta = {
         "accession_no": filing.accession_no,
@@ -325,6 +336,69 @@ def find_latest(cik: str, series_id: str):
         "source_url": filing.filing_url,
     }
     return filing, meta
+
+
+def parse_cash_stub(
+    filing,
+    series_id: str,
+    series_name: str | None,
+    registrant_cik: str | None,
+) -> dict:
+    """Build the intermediate dict for a money market fund treated as cash.
+
+    Uses only the filing's metadata + SGML header — we deliberately skip
+    the N-MFP XML body parse, since the consumer's only signal is "this is
+    cash" and the per-security CUSIP/repo detail in N-MFP would collapse
+    to that anyway. The primary share-class ticker becomes the stub
+    holding's identifier so it survives transform.to_json1's "no ticker /
+    no isin" drop and renders sensibly in a holdings UI.
+    """
+    as_of = _iso_date(filing.period_of_report)
+    share_classes = parse_share_classes(filing, series_id)
+    primary_ticker = next(
+        (sc["ticker"] for sc in share_classes if sc.get("ticker")), None
+    )
+    fund = {
+        "name": series_name,
+        "series_id": series_id,
+        "series_lei": None,
+        "registrant_cik": registrant_cik,
+        "registrant_name": None,
+        "registrant_lei": None,
+        "as_of": as_of,
+        "total_assets_usd": None,
+        "total_liabs_usd": None,
+        "net_assets_usd": None,
+        "cash_not_in_portfolio_usd": None,
+        "is_final_filing": False,
+        "interest_rate_risk": [],
+        "credit_spread_risk": None,
+        "monthly_returns": [],
+        "share_classes": share_classes,
+    }
+    holdings = [
+        {
+            "name": "Cash",
+            "lei": None,
+            "ticker": primary_ticker,
+            "isin": None,
+            "issuer_cik": None,
+            "pct_val": 100.0,
+            "val_usd": None,
+            "balance": None,
+            "units": None,
+            "asset_cat_code": "STIV",
+            "issuer_cat_code": None,
+            "inv_country": "US",
+            "cur_cd": "USD",
+            "payoff_profile": "long",
+            "is_restricted": False,
+            "is_fair_valued": False,
+            "fair_value_level": None,
+            "debt": None,
+        }
+    ]
+    return {"fund": fund, "holdings": holdings}
 
 
 def parse(filing, ticker_index_path: str | Path | None = None) -> dict:
